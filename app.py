@@ -24,7 +24,7 @@ st.sidebar.markdown("""
 st.sidebar.subheader("1️⃣ キー発行サイトを開く")
 st.sidebar.link_button(
     "👉 無料APIキーを今すぐ取得する",
-    "https://aistudio.google.com/app/apikey",
+    "[https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)",
     type="primary",
     use_container_width=True
 )
@@ -60,7 +60,7 @@ if user_api_key:
         except Exception:
             st.sidebar.error("❌ 無効なAPIキーです。コピーミスがないか確認してください。")
 
-# ここを修正！正しい区切り線の命令
+# 正しい区切り線の命令
 st.sidebar.divider()
 
 # 就活・論文の審査に耐えうるセキュリティポリシーの明記
@@ -141,9 +141,8 @@ if st.button("一括スキャン開始", type="primary"):
             
             res_text = response.text.strip()
             
-            # Markdown装飾のクレンジング処理
-            if res_text.startswith("
-```"):
+            # 【ここを完全修正】文字列の閉じ忘れを直した
+            if res_text.startswith("```"):
                 res_text = res_text.split("```")[1]
                 if res_text.startswith("json"):
                     res_text = res_text[4:]
