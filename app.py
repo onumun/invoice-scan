@@ -60,7 +60,8 @@ if user_api_key:
         except Exception:
             st.sidebar.error("❌ 無効なAPIキーです。コピーミスがないか確認してください。")
 
-st.sidebar.separator()
+# ここを修正！正しい区切り線の命令
+st.sidebar.divider()
 
 # 就活・論文の審査に耐えうるセキュリティポリシーの明記
 st.sidebar.subheader("🛡️ プライバシー＆セキュリティ方針")
@@ -141,7 +142,8 @@ if st.button("一括スキャン開始", type="primary"):
             res_text = response.text.strip()
             
             # Markdown装飾のクレンジング処理
-            if res_text.startswith("```"):
+            if res_text.startswith("
+```"):
                 res_text = res_text.split("```")[1]
                 if res_text.startswith("json"):
                     res_text = res_text[4:]
