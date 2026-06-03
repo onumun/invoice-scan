@@ -6,21 +6,24 @@ import json
 from google import genai
 from google.genai import types
 
-# --- 1. ページ全体の初期設定（プロっぽい外観） ---
+# --- 1. ページ全体の初期設定 ---
 st.set_page_config(
     page_title="爆速レシート一括仕分けシステム PRO",
     page_icon="🚀",
     layout="wide"
 )
 
-# --- 2. サイドバーの設定（ユーザー動線を1, 2, 3で完全明記） ---
+# --- 状態をガッチリ固定するセッションの初期化 ---
+if "api_key" not in st.session_state:
+    st.session_state["api_key"] = ""
+
+# --- 2. サイドバーの設定 ---
 st.sidebar.header("🔑 1分で完了！初期設定")
 st.sidebar.markdown("""
 本ツールは、あなた専用の無料AIキー（Gemini APIキー）を利用して安全に動作します。
 以下の**3つのステップ**で設定が完了します。
 """)
 
-# 【項目1】キー発行サイトへの直リンク
 st.sidebar.subheader("1️⃣ キー発行サイトを開く")
 st.sidebar.link_button(
     "👉 無料APIキーを今すぐ取得する",
@@ -30,23 +33,23 @@ st.sidebar.link_button(
 )
 st.sidebar.caption("※Googleアカウント（Gmail等）へのログインが必要です。")
 
-# 【項目2】やるべき操作のガイド
 st.sidebar.subheader("2️⃣ サイトでキーをコピーする")
-st.sidebar.info("開いた画面にある青い **「Create API key」** ボタンを押し、発行されたコード（`AIzaSy...`から始まる文字列）をコピーしてください。")
+st.sidebar.info("開いた画面にある青い **「Create API key」** ボタンを押し、発行されたコードをコピーしてください。")
 
-# 【項目3】入力欄の明記
 st.sidebar.subheader("3️⃣ ここに貼り付ける")
-user_api_key = st.sidebar.text_input(
+
+input_key = st.sidebar.text_input(
     "取得した API キーを入力👇",
     type="password",
-    placeholder="AIzaSy..."
+    value=st.session_state["api_key"],
+    placeholder="AQ. から始まる新しいキーにも対応しています"
 )
 
-# ※クラッシュの原因だった「自動検証ロジック」をここに完全に撤去（安全性を最優先）
+if input_key:
+    st.session_state["api_key"] = input_key.strip()
 
 st.sidebar.divider()
 
-# セキュリティポリシーの明記
 st.sidebar.subheader("🛡️ プライバシー＆セキュリティ方針")
 st.sidebar.caption("""
 - **データの即時破棄**: アップロードされた画像および生成されたExcelデータは、処理完了後にサーバーのメモリから即座に完全消去されます。サーバーへの保存は一切行われません。
@@ -58,24 +61,22 @@ st.sidebar.caption("""
 st.title("🚀 爆速レシート一括仕分けシステム PRO")
 st.markdown("複数のレシート画像やPDFを一括で読み込み、AIが自動で店舗名、日付、金額、品目を判別してExcel化します。")
 
-# ファイルアップローダー
 uploaded_files = st.file_uploader(
     "レシートの画像（JPEG/PNG）またはPDFを選択（複数選択可）",
     type=["png", "jpg", "jpeg", "pdf"],
     accept_multiple_files=True
 )
 
-# 一括スキャン開始ボタン
 if st.button("一括スキャン開始", type="primary"):
     
-    # 【修正】APIキーの簡易バリデーション（ここでチェックを完結させる）
-    if not user_api_key:
+    cleaned_api_key = st.session_state["api_key"]
+    
+    if not cleaned_api_key:
         st.error("❌ 画面左側のサイドバーに Gemini API キーを入力してください。")
         st.stop()
         
-    if not user_api_key.startswith("AIzaSy"):
-        st.error("❌ 入力されたキーの形式が正しくありません（AIzaSyから始まる文字列が必要です）。")
-        st.stop()
+    # 【大戦犯の修正】「AIzaSy」の古い形式チェックを完全に撤去
+    # 空白でさえなければ、最新の「AQ.」から始まるキーでもすべてそのまま通す
         
     if not uploaded_files:
         st.warning("⚠️ スキャンするファイルを1つ以上アップロードしてください。")
@@ -87,8 +88,7 @@ if st.button("一括スキャン開始", type="primary"):
     status_text = st.empty()
     
     try:
-        # ボタンが押されてから初めてAPIクライアントを初期化（ここで接続テストを兼ねる）
-        client = genai.Client(api_key=user_api_key)
+        client = genai.Client(api_key=cleaned_api_key)
         
         prompt = """
         与えられた画像またはPDFが「領収書・レシート」である場合は、以下の4つの情報を正確に抽出してください。
@@ -113,7 +113,6 @@ if st.button("一括スキャン開始", type="primary"):
             file_bytes = file.read()
             mime_type = "application/pdf" if file.name.lower().endswith('.pdf') else "image/jpeg"
             
-            # APIリクエスト
             response = client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=[
@@ -158,7 +157,6 @@ if st.button("一括スキャン開始", type="primary"):
             
         status_text.text("✨ すべてのファイルの解析処理を終了しました。")
         
-        # --- 5. 結果の結合とExcel出力 ---
         if all_data:
             final_df = pd.concat(all_data, ignore_index=True)
             
@@ -185,7 +183,6 @@ if st.button("一括スキャン開始", type="primary"):
             st.error("❌ アップロードされたファイルの中に、有効なレシート画像が1枚もありませんでした。")
             
     except Exception as e:
-        # キーが間違っている場合のエラーハンドリングもここに集約
         st.error("❌ 通信エラーが発生したか、APIキーが無効です。サイドバーのキーを確認してください。")
         with st.expander("詳細なエラーログ（開発者向け）"):
             st.code(str(e))
