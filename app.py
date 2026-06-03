@@ -3,6 +3,7 @@ import pandas as pd
 import io
 import gc
 import json
+import time  # 自動リトライ用の時間制御を追加
 from google import genai
 from google.genai import types
 
@@ -42,7 +43,7 @@ input_key = st.sidebar.text_input(
     "取得した API キーを入力👇",
     type="password",
     value=st.session_state["api_key"],
-    placeholder="AQ. から始まる新しいキーにも対応しています"
+    placeholder="AQ. から始まる最新キーに対応"
 )
 
 if input_key:
@@ -74,9 +75,6 @@ if st.button("一括スキャン開始", type="primary"):
     if not cleaned_api_key:
         st.error("❌ 画面左側のサイドバーに Gemini API キーを入力してください。")
         st.stop()
-        
-    # 【大戦犯の修正】「AIzaSy」の古い形式チェックを完全に撤去
-    # 空白でさえなければ、最新の「AQ.」から始まるキーでもすべてそのまま通す
         
     if not uploaded_files:
         st.warning("⚠️ スキャンするファイルを1つ以上アップロードしてください。")
@@ -113,17 +111,37 @@ if st.button("一括スキャン開始", type="primary"):
             file_bytes = file.read()
             mime_type = "application/pdf" if file.name.lower().endswith('.pdf') else "image/jpeg"
             
-            response = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=[
-                    types.Part.from_bytes(
-                        data=file_bytes,
-                        mime_type=mime_type,
-                    ),
-                    prompt
-                ]
-            )
+            # --- 【プロ仕様】Googleサーバー混雑（503等）対策の自動リトライロジック ---
+            max_retries = 3
+            response = None
             
+            for attempt in range(max_retries):
+                try:
+                    response = client.models.generate_content(
+                        model='gemini-2.5-flash',
+                        contents=[
+                            types.Part.from_bytes(
+                                data=file_bytes,
+                                mime_type=mime_type,
+                            ),
+                            prompt
+                        ]
+                    )
+                    break # 成功したらリトライを抜ける
+                except Exception as api_err:
+                    # 503などの一時的エラーなら、少し待ってリトライ
+                    if "503" in str(api_err) or "unavailable" in str(api_err).lower():
+                        if attempt < max_retries - 1:
+                            st.warning(f"⚠️ Googleのサーバーが混雑しています。1.5秒後に自動で再試行します... (試行 {attempt + 1}/{max_retries})")
+                            time.sleep(1.5)
+                            continue
+                    # それ以外の致命的なエラーはそのまま上に投げる
+                    raise api_err
+            
+            if not response:
+                st.error(f"❌ {file.name} の処理中にGoogleサーバーへの接続がタイムアウトしました。")
+                continue
+
             res_text = response.text.strip()
             
             if res_text.startswith("```"):
@@ -183,7 +201,10 @@ if st.button("一括スキャン開始", type="primary"):
             st.error("❌ アップロードされたファイルの中に、有効なレシート画像が1枚もありませんでした。")
             
     except Exception as e:
-        st.error("❌ 通信エラーが発生したか、APIキーが無効です。サイドバーのキーを確認してください。")
+        if "503" in str(e) or "unavailable" in str(e).lower():
+            st.error("❌ Googleのサーバーが現在世界的に極めて混雑しています。少し時間を空けて再度「一括スキャン開始」を押してください。")
+        else:
+            st.error("❌ 通信エラーが発生したか、APIキーが無効です。サイドバーのキーを確認してください。")
         with st.expander("詳細なエラーログ（開発者向け）"):
             st.code(str(e))
             
