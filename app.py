@@ -6,6 +6,7 @@ import json
 import time
 from google import genai
 from google.genai import types
+from pydantic import BaseModel  # 正しいインポートに修正
 
 # --- 1. ページ全体の初期設定 ---
 st.set_page_config(
@@ -48,7 +49,7 @@ col1, col2 = st.columns([1, 1])
 with col1:
     st.link_button(
         "✨ 無料APIキー発行サイトへ",
-        "[https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)",
+        "https://aistudio.google.com/app/apikey",
         type="primary",
         use_container_width=True
     )
@@ -90,8 +91,8 @@ if st.button("一括スキャン開始", type="primary", use_container_width=Tru
     try:
         client = genai.Client(api_key=cleaned_api_key)
         
-        # 4項目のデータ構造を定義
-        class ReceiptItem(types.BaseModel):
+        # PydanticのBaseModelを正しく継承
+        class ReceiptItem(BaseModel):
             店舗名: str
             日付: str
             金額: int
@@ -110,7 +111,6 @@ if st.button("一括スキャン開始", type="primary", use_container_width=Tru
             
             for attempt in range(max_retries):
                 try:
-                    # response_schemaを使用して、データの構造（4項目）を強制指定
                     response = client.models.generate_content(
                         model='gemini-2.5-flash',
                         contents=[
@@ -142,7 +142,6 @@ if st.button("一括スキャン開始", type="primary", use_container_width=Tru
                 json_data = json.loads(res_text)
                 if json_data:
                     df = pd.DataFrame(json_data)
-                    # 列の順序を固定
                     df = df[["店舗名", "日付", "金額", "品目"]]
                     all_data.append(df)
                 
