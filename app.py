@@ -3,7 +3,7 @@ import pandas as pd
 import io
 import gc
 import json
-import time  # 自動リトライ用の時間制御を追加
+import time
 from google import genai
 from google.genai import types
 
@@ -14,16 +14,39 @@ st.set_page_config(
     layout="wide"
 )
 
+# スマホの画面潰れを防ぐためのカスタムCSSスタイル（文字重なり防止）
+st.markdown("""
+<style>
+    /* テーブル全体の文字サイズをスマホ用に調整し、折り返しを防ぐ */
+    .styled-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+        min-width: 400px;
+    }
+    .styled-table th, .styled-table td {
+        padding: 8px;
+        border: 1px solid #ddd;
+        text-align: left;
+        white-space: nowrap; /* 文字が縦に潰れて重なるのを防ぐ */
+    }
+    /* スマホで横スクロールを強制的に有効化 */
+    .table-container {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+        margin-bottom: 20px;
+        border: 1px solid #ccc;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # --- 状態をガッチリ固定するセッションの初期化 ---
 if "api_key" not in st.session_state:
     st.session_state["api_key"] = ""
 
-# --- 2. サイドバーの設定 ---
-st.sidebar.header("🔑 1分で完了！初期設定")
-st.sidebar.markdown("""
-本ツールは、あなた専用の無料AIキー（Gemini APIキー）を利用して安全に動作します。
-以下の**3つのステップ**で設定が完了します。
-""")
+# --- 2. サイドバーの設定（PC用） ---
+st.sidebar.header("🔑 初期設定（PC用）")
+st.sidebar.markdown("※スマホの方はメイン画面の入力欄をご利用ください。")
 
 st.sidebar.subheader("1️⃣ キー発行サイトを開く")
 st.sidebar.link_button(
@@ -32,48 +55,63 @@ st.sidebar.link_button(
     type="primary",
     use_container_width=True
 )
-st.sidebar.caption("※Googleアカウント（Gmail等）へのログインが必要です。")
 
-st.sidebar.subheader("2️⃣ サイトでキーをコピーする")
-st.sidebar.info("開いた画面にある青い **「Create API key」** ボタンを押し、発行されたコードをコピーしてください。")
-
-st.sidebar.subheader("3️⃣ ここに貼り付ける")
-
-input_key = st.sidebar.text_input(
-    "取得した API キーを入力👇",
+st.sidebar.subheader("2️⃣ ここに貼り付ける")
+input_key_sidebar = st.sidebar.text_input(
+    "サイドバー用入力欄",
     type="password",
     value=st.session_state["api_key"],
-    placeholder="AQ. から始まる最新キーに対応"
+    key="key_sidebar"
 )
-
-if input_key:
-    st.session_state["api_key"] = input_key.strip()
+if input_key_sidebar:
+    st.session_state["api_key"] = input_key_sidebar.strip()
 
 st.sidebar.divider()
+st.sidebar.subheader("🛡️ セキュリティ方針")
+st.sidebar.caption("データは処理完了後にサーバーのメモリから即座に完全消去されます。")
 
-st.sidebar.subheader("🛡️ プライバシー＆セキュリティ方針")
-st.sidebar.caption("""
-- **データの即時破棄**: アップロードされた画像および生成されたExcelデータは、処理完了後にサーバーのメモリから即座に完全消去されます。サーバーへの保存は一切行われません。
-- **通信の安全性**: Googleの公式APIへ直接暗号化通信を行います。
-- **免責事項**: 本ツールは無料のオープンソースです。無料版APIの規約上、機密性の極めて高い個人情報の入力は自己責任でお願いいたします。
-""")
 
 # --- 3. メイン画面のUI ---
-st.title("🚀 爆速レシート一括仕分けシステム PRO")
-st.markdown("複数のレシート画像やPDFを一括で読み込み、AIが自動で店舗名、日付、金額、品目を判別してExcel化します。")
+st.title("🚀 レシート一括仕分けシステム PRO")
+st.markdown("複数のレシートを一括で読み込み、AIが自動で店舗名、日付、金額、品目を判別してExcel化します。")
 
+# 【一部しかない問題の解決】スマホでサイドバーが隠れてもいいように、メイン画面にも入力欄を配置
+st.info("💡 **【重要】スキャンを始める前に**\n\nまずは下のボタンから無料のAPIキーを取得し、入力欄に貼り付けてください。")
+
+col1, col2 = st.columns([1, 1])
+with col1:
+    st.link_button(
+        "✨ 1発で取得！無料APIキー発行サイトへ",
+        "https://aistudio.google.com/app/apikey",
+        type="primary",
+        use_container_width=True
+    )
+with col2:
+    input_key_main = st.text_input(
+        "🔑 取得したAPIキーをここに貼り付け👇",
+        type="password",
+        value=st.session_state["api_key"],
+        placeholder="AQ. から始まるキーを貼り付け",
+        key="key_main"
+    )
+    if input_key_main:
+        st.session_state["api_key"] = input_key_main.strip()
+
+st.divider()
+
+# ファイルアップローダー
 uploaded_files = st.file_uploader(
     "レシートの画像（JPEG/PNG）またはPDFを選択（複数選択可）",
     type=["png", "jpg", "jpeg", "pdf"],
     accept_multiple_files=True
 )
 
-if st.button("一括スキャン開始", type="primary"):
+if st.button("一括スキャン開始", type="primary", use_container_width=True):
     
     cleaned_api_key = st.session_state["api_key"]
     
     if not cleaned_api_key:
-        st.error("❌ 画面左側のサイドバーに Gemini API キーを入力してください。")
+        st.error("❌ APIキーが入力されていません。上の欄に貼り付けてください。")
         st.stop()
         
     if not uploaded_files:
@@ -111,7 +149,6 @@ if st.button("一括スキャン開始", type="primary"):
             file_bytes = file.read()
             mime_type = "application/pdf" if file.name.lower().endswith('.pdf') else "image/jpeg"
             
-            # --- 【プロ仕様】Googleサーバー混雑（503等）対策の自動リトライロジック ---
             max_retries = 3
             response = None
             
@@ -127,19 +164,17 @@ if st.button("一括スキャン開始", type="primary"):
                             prompt
                         ]
                     )
-                    break # 成功したらリトライを抜ける
+                    break
                 except Exception as api_err:
-                    # 503などの一時的エラーなら、少し待ってリトライ
                     if "503" in str(api_err) or "unavailable" in str(api_err).lower():
                         if attempt < max_retries - 1:
-                            st.warning(f"⚠️ Googleのサーバーが混雑しています。1.5秒後に自動で再試行します... (試行 {attempt + 1}/{max_retries})")
+                            st.warning(f"⚠️ サーバー混雑中。自動再試行します... ({attempt + 1}/{max_retries})")
                             time.sleep(1.5)
                             continue
-                    # それ以外の致命的なエラーはそのまま上に投げる
                     raise api_err
             
             if not response:
-                st.error(f"❌ {file.name} の処理中にGoogleサーバーへの接続がタイムアウトしました。")
+                st.error(f"❌ {file.name} の処理中にタイムアウトしました。")
                 continue
 
             res_text = response.text.strip()
@@ -154,17 +189,14 @@ if st.button("一括スキャン開始", type="primary"):
                 json_data = json.loads(res_text)
                 
                 if not json_data:
-                    st.warning(f"⚠️ {file.name} はレシート画像ではないと判定されたため、スキップしました。")
+                    st.warning(f"⚠️ {file.name} はレシート画像ではないためスキップしました。")
                 else:
                     df = pd.DataFrame(json_data)
                     all_data.append(df)
-                    st.success(f"✅ {file.name} の解析に成功しました！")
+                    st.success(f"✅ {file.name} の解析成功！")
                 
             except Exception as parse_err:
                 st.warning(f"⚠️ {file.name} のデータ変換に失敗しました。")
-                with st.expander(f"🔍 {file.name} のデバッグ情報"):
-                    st.text("AIからの生出力:")
-                    st.code(res_text)
                 continue
                 
             finally:
@@ -179,7 +211,10 @@ if st.button("一括スキャン開始", type="primary"):
             final_df = pd.concat(all_data, ignore_index=True)
             
             st.subheader("📊 解析結果プレビュー")
-            st.dataframe(final_df, use_container_width=True)
+            
+            # 【重なり・スクロールバグの解決】HTMLとCSSを使って、スマホでも絶対に潰れない横スクロール表を出力
+            html_table = final_df.to_html(classes='styled-table', index=False)
+            st.markdown(f'<div class="table-container">{html_table}</div>', unsafe_allow_html=True)
             
             excel_buffer = io.BytesIO()
             with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
@@ -190,7 +225,8 @@ if st.button("一括スキャン開始", type="primary"):
                 data=excel_buffer.getvalue(),
                 file_name="レシート一括仕分け結果.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary"
+                type="primary",
+                use_container_width=True
             )
             
             del excel_buffer
@@ -198,14 +234,14 @@ if st.button("一括スキャン開始", type="primary"):
             gc.collect()
             
         else:
-            st.error("❌ アップロードされたファイルの中に、有効なレシート画像が1枚もありませんでした。")
+            st.error("❌ 有効なレシート画像が1枚もありませんでした。")
             
     except Exception as e:
         if "503" in str(e) or "unavailable" in str(e).lower():
-            st.error("❌ Googleのサーバーが現在世界的に極めて混雑しています。少し時間を空けて再度「一括スキャン開始」を押してください。")
+            st.error("❌ Googleのサーバーが混雑しています。少し時間を空けて再度お試しください。")
         else:
-            st.error("❌ 通信エラーが発生したか、APIキーが無効です。サイドバーのキーを確認してください。")
-        with st.expander("詳細なエラーログ（開発者向け）"):
+            st.error("❌ 通信エラーが発生したか、APIキーが無効です。")
+        with st.expander("詳細なエラーログ"):
             st.code(str(e))
             
     finally:
