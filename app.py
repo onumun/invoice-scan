@@ -24,13 +24,13 @@ st.sidebar.markdown("""
 st.sidebar.subheader("1️⃣ キー発行サイトを開く")
 st.sidebar.link_button(
     "👉 無料APIキーを今すぐ取得する",
-    "[https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)",
+    "https://aistudio.google.com/app/apikey",
     type="primary",
     use_container_width=True
 )
 st.sidebar.caption("※Googleアカウント（Gmail等）へのログインが必要です。")
 
-# 【項目2】やるべき操作の視覚的ガイド
+# 【項目2】やるべき操作のガイド
 st.sidebar.subheader("2️⃣ サイトでキーをコピーする")
 st.sidebar.info("開いた画面にある青い **「Create API key」** ボタンを押し、発行されたコード（`AIzaSy...`から始まる文字列）をコピーしてください。")
 
@@ -42,28 +42,11 @@ user_api_key = st.sidebar.text_input(
     placeholder="AIzaSy..."
 )
 
-# --- 【プロ仕様】APIキーの自動検証ロジック ---
-api_verified = False
-if user_api_key:
-    if not user_api_key.startswith("AIzaSy"):
-        st.sidebar.error("❌ キーの形式が正しくないようです（AIzaSyから始まります）")
-    else:
-        try:
-            # 軽量なリクエストを送信してキーの有効性を即座にテスト
-            test_client = genai.Client(api_key=user_api_key)
-            test_client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents="test"
-            )
-            st.sidebar.success("✅ APIキーの認証に成功しました！準備完了です。")
-            api_verified = True
-        except Exception:
-            st.sidebar.error("❌ 無効なAPIキーです。コピーミスがないか確認してください。")
+# ※クラッシュの原因だった「自動検証ロジック」をここに完全に撤去（安全性を最優先）
 
-# 正しい区切り線の命令
 st.sidebar.divider()
 
-# 就活・論文の審査に耐えうるセキュリティポリシーの明記
+# セキュリティポリシーの明記
 st.sidebar.subheader("🛡️ プライバシー＆セキュリティ方針")
 st.sidebar.caption("""
 - **データの即時破棄**: アップロードされた画像および生成されたExcelデータは、処理完了後にサーバーのメモリから即座に完全消去されます。サーバーへの保存は一切行われません。
@@ -75,7 +58,7 @@ st.sidebar.caption("""
 st.title("🚀 爆速レシート一括仕分けシステム PRO")
 st.markdown("複数のレシート画像やPDFを一括で読み込み、AIが自動で店舗名、日付、金額、品目を判別してExcel化します。")
 
-# ファイルアップローダー（複数選択・PDF対応）
+# ファイルアップローダー
 uploaded_files = st.file_uploader(
     "レシートの画像（JPEG/PNG）またはPDFを選択（複数選択可）",
     type=["png", "jpg", "jpeg", "pdf"],
@@ -85,9 +68,13 @@ uploaded_files = st.file_uploader(
 # 一括スキャン開始ボタン
 if st.button("一括スキャン開始", type="primary"):
     
-    # バリデーションチェック
-    if not user_api_key or not api_verified:
-        st.error("❌ 画面左側のサイドバーで有効な Gemini API キーを設定してください。")
+    # 【修正】APIキーの簡易バリデーション（ここでチェックを完結させる）
+    if not user_api_key:
+        st.error("❌ 画面左側のサイドバーに Gemini API キーを入力してください。")
+        st.stop()
+        
+    if not user_api_key.startswith("AIzaSy"):
+        st.error("❌ 入力されたキーの形式が正しくありません（AIzaSyから始まる文字列が必要です）。")
         st.stop()
         
     if not uploaded_files:
@@ -96,14 +83,13 @@ if st.button("一括スキャン開始", type="primary"):
 
     all_data = []
     
-    # UX向上のための進捗バー
     progress_bar = st.progress(0)
     status_text = st.empty()
     
     try:
+        # ボタンが押されてから初めてAPIクライアントを初期化（ここで接続テストを兼ねる）
         client = genai.Client(api_key=user_api_key)
         
-        # 厳格なプロンプト定義（異常データ排除ロジック）
         prompt = """
         与えられた画像またはPDFが「領収書・レシート」である場合は、以下の4つの情報を正確に抽出してください。
         出力は必ず、以下のフォーマット通りの有効なJSON配列（生データのみ）にしてください。文字装飾（```json などのMarkdown）は絶対に付けないでください。
@@ -141,7 +127,6 @@ if st.button("一括スキャン開始", type="primary"):
             
             res_text = response.text.strip()
             
-            # 【ここを完全修正】文字列の閉じ忘れを直した
             if res_text.startswith("```"):
                 res_text = res_text.split("```")[1]
                 if res_text.startswith("json"):
@@ -151,7 +136,6 @@ if st.button("一括スキャン開始", type="primary"):
             try:
                 json_data = json.loads(res_text)
                 
-                # ユーザーが発見した「混ぜ物バグ」に対応する条件分岐
                 if not json_data:
                     st.warning(f"⚠️ {file.name} はレシート画像ではないと判定されたため、スキップしました。")
                 else:
@@ -167,7 +151,6 @@ if st.button("一括スキャン開始", type="primary"):
                 continue
                 
             finally:
-                # セキュリティと省メモリのためのリソース解放
                 del file_bytes
                 gc.collect()
             
@@ -182,7 +165,6 @@ if st.button("一括スキャン開始", type="primary"):
             st.subheader("📊 解析結果プレビュー")
             st.dataframe(final_df, use_container_width=True)
             
-            # メモリバッファ上でのExcel生成
             excel_buffer = io.BytesIO()
             with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                 final_df.to_excel(writer, index=False, sheet_name='レシート仕分け結果')
@@ -195,7 +177,6 @@ if st.button("一括スキャン開始", type="primary"):
                 type="primary"
             )
             
-            # 機密情報データのメモリ強制破棄
             del excel_buffer
             del final_df
             gc.collect()
@@ -204,7 +185,8 @@ if st.button("一括スキャン開始", type="primary"):
             st.error("❌ アップロードされたファイルの中に、有効なレシート画像が1枚もありませんでした。")
             
     except Exception as e:
-        st.error("❌ 通信エラーが発生しました。")
+        # キーが間違っている場合のエラーハンドリングもここに集約
+        st.error("❌ 通信エラーが発生したか、APIキーが無効です。サイドバーのキーを確認してください。")
         with st.expander("詳細なエラーログ（開発者向け）"):
             st.code(str(e))
             
